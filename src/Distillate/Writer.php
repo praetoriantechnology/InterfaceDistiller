@@ -140,13 +140,10 @@ class Writer
      */
     protected function parameterToString(\ReflectionParameter $parameter)
     {
-        $classPrefix = $this->inGlobalNamespace ? '' : '\\';
-
         return trim(
             sprintf(
-                '%s%s %s$%s%s',
-                $parameter->getClass() ? $classPrefix . $this->resolveTypeHint($parameter) : '',
-                $parameter->isArray() ? 'array' : '',
+                '%s %s$%s%s',
+                $this->methodParameterTypeToString($parameter),
                 $parameter->isPassedByReference() ? '&' : '',
                 $parameter->name,
                 $this->resolveDefaultValue($parameter)
@@ -155,19 +152,42 @@ class Writer
     }
 
     /**
-     * @param \ReflectionParameter $reflectionParameter
+     * @param \ReflectionParameter $parameter
      * @return string
      */
-    protected function resolveTypeHint(\ReflectionParameter $reflectionParameter)
+    protected function methodParameterTypeToString(\ReflectionParameter $parameter): string
     {
-        if ($reflectionParameter->getDeclaringClass()->inNamespace()) {
-            $typeHint = $reflectionParameter->getClass();
-            return $typeHint->isInternal()
-                ? '\\' . $typeHint->getName()
-                : $typeHint->getName();
+        /** @var \ReflectionType|null */
+        $parameterType = $parameter->getType();
+
+        //parameter type is not declared
+        if ($parameterType === null) {
+            return '';
         }
 
-        return $reflectionParameter->getClass()->getName();
+        return sprintf(
+            '%s%s',
+            $parameterType->allowsNull() ? '?' : '',
+            $this->resolveType($parameterType)
+        );
+    }
+
+    /**
+     * @param \ReflectionType $type
+     * @return string
+     */
+    protected function resolveType(\ReflectionType $type): string
+    {
+        /** @var string */
+        $fullyQualifiedClassName = $type->getName();
+
+        if ($type->isBuiltin() || $fullyQualifiedClassName === 'self') {
+            return $fullyQualifiedClassName;
+        }
+
+        $classPrefix = $this->inGlobalNamespace ? '' : '\\';
+
+        return $classPrefix . $fullyQualifiedClassName;
     }
 
     /**

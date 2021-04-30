@@ -97,10 +97,11 @@ class Writer
     {
         $this->writeString(
             sprintf(
-                static::INDENT . 'public%sfunction %s(%s);',
+                static::INDENT . 'public%sfunction %s(%s)%s;',
                 $method->isStatic() ? ' static ' : ' ',
                 $method->name,
-                $this->methodParametersToString($method)
+                $this->methodParametersToString($method),
+                $this->methodReturnTypeToString($method)
             )
         );
         $this->writeString(PHP_EOL);
@@ -169,6 +170,26 @@ class Writer
             '%s%s',
             $parameterType->allowsNull() ? '?' : '',
             $this->resolveType($parameterType)
+        );
+    }
+
+    /**
+     * @param \ReflectionMethod $method
+     * @return string
+     */
+    protected function methodReturnTypeToString(\ReflectionMethod $method): string
+    {
+        /** @var \ReflectionType|null */
+        $returnType = $method->getReturnType();
+
+        //return type is not declared
+        if ($returnType === null) {
+            return '';
+        }
+
+        return sprintf(': %s%s',
+            $returnType->allowsNull() ? '?' : '',
+            $this->resolveType($returnType)
         );
     }
 

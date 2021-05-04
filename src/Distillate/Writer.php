@@ -24,6 +24,8 @@ class Writer
      */
     protected $inGlobalNamespace;
 
+    protected string $interfaceNamespace;
+
     /**
      * @param \SplFileObject $fileObject
      */
@@ -41,7 +43,8 @@ class Writer
         $this->writeString('<?php' . PHP_EOL);
         $this->writeInterfaceSignature(
             $distillate->getInterfaceName(),
-            $distillate->getExtendingInterfaces()
+            $distillate->getExtendingInterfaces(),
+            $distillate->getInterfaceMethods()
         );
         $this->writeString('{' . PHP_EOL);
         $this->writeMethods($distillate->getInterfaceMethods());
@@ -60,19 +63,23 @@ class Writer
     /**
      * @param string $interfaceName
      * @param string $extendingInterfaces
+     * @param array $methods
      * @return void
      */
-    protected function writeInterfaceSignature($interfaceName, $extendingInterfaces = '')
+    protected function writeInterfaceSignature($interfaceName, $extendingInterfaces, array $methods)
     {
         $nameParts = explode('\\', $interfaceName);
         $interfaceShortName = array_pop($nameParts);
         if ($nameParts) {
             $this->writeString(PHP_EOL);
-            $this->writeString('namespace ' . implode('\\', $nameParts) . ';' . PHP_EOL);
+            $this->interfaceNamespace = implode('\\', $nameParts);
+            $this->writeString('namespace ' . $this->interfaceNamespace . ';' . PHP_EOL);
             $this->inGlobalNamespace = false;
         } else {
             $this->inGlobalNamespace = true;
         }
+
+        $this->writeUseStatements($methods);
 
         $this->writeString(PHP_EOL);
         $this->writeString("interface $interfaceShortName");
@@ -211,9 +218,33 @@ class Writer
             return $fullyQualifiedClassName;
         }
 
-        $classPrefix = $this->inGlobalNamespace ? '' : '\\';
+        return (new \ReflectionClass($fullyQualifiedClassName))->getShortName();
+    }
 
-        return $classPrefix . $fullyQualifiedClassName;
+    /**
+     * @param \ReflectionType $type
+     * @return string|null
+     */
+    protected function createUseStatementForType(\ReflectionType $type): ?string
+    {
+        /** @var string */
+        $fullyQualifiedClassName = $type->getName();
+
+        if ($type->isBuiltin() || in_array($fullyQualifiedClassName, self::ALIASES_FOR_CLASS_TYPE)) {
+            return null;
+        }
+
+        $reflectionClass = new \ReflectionClass($fullyQualifiedClassName);
+
+        if (!$this->inGlobalNamespace && $reflectionClass->getNamespaceName() === $this->interfaceNamespace) {
+            return null;
+        }
+
+        if ($this->inGlobalNamespace && !$reflectionClass->inNamespace()) {
+            return null;
+        }
+
+        return 'use ' . $reflectionClass->getName() . ';';
     }
 
     /**
@@ -232,6 +263,89 @@ class Writer
         }
 
         return $this->handleOptionalParameterWithUnresolvableDefaultValue($parameter);
+    }
+
+    /**
+     * @param array $methods
+     * @return void
+     */
+    protected function writeUseStatements(array $methods): void
+    {
+        $statements = $this->createUseStatements($methods);
+
+        if (count($statements) === 0) {
+            return;
+        }
+
+        $this->writeString(PHP_EOL);
+
+        /** @var string $useStatement */
+        foreach ($statements as $useStatement) {
+            $this->writeString($useStatement . PHP_EOL);
+        }
+    }
+
+    /**
+     * @param array $methods
+     * @return array
+     */
+    protected function createUseStatements(array $methods): array
+    {
+        $useStatements = [];
+
+        /** @var \ReflectionType $type */
+        foreach ($this->getTypesUsedInAllMethods($methods) as $type) {
+            $useStatement = $this->createUseStatementForType($type);
+
+            if ($useStatement === null) {
+                continue;
+            }
+
+            $useStatements[] = $useStatement;
+        }
+
+        return $useStatements;
+    }
+
+    /**
+     * @param array $methods
+     * @return array
+     */
+    protected function getTypesUsedInAllMethods(array $methods): array
+    {
+        $types = [];
+
+        /** @var \ReflectionMethod $method */
+        foreach ($methods as $method) {
+            $types = array_merge($types, $this->getTypesUsedInMethodDeclaration($method));
+        }
+
+        $typeNames = array_map(function (\ReflectionType $type) {
+            return $type->getName();
+        }, $types);
+
+        $uniqueNames = array_unique($typeNames);
+
+        return array_values(array_intersect_key($types, $uniqueNames));
+    }
+
+    /**
+     * @param \ReflectionMethod $method
+     * @return array
+     */
+    protected function getTypesUsedInMethodDeclaration(\ReflectionMethod $method): array
+    {
+        $types = array_map(function (\ReflectionParameter $parameter) {
+            return $parameter->getType();
+        }, $method->getParameters());
+
+        $types[] = $method->getReturnType();
+
+        $types = array_filter($types, function (?\ReflectionType $type) {
+            return $type !== null;
+        });
+
+        return $types;
     }
 
     /**

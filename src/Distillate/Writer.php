@@ -9,6 +9,11 @@ class Writer
      */
     const INDENT = '    ';
 
+    private const ALIASES_FOR_CLASS_TYPE = [
+        'self',
+        'parent',
+    ];
+
     /**
      * @var \SplFileObject
      */
@@ -202,7 +207,7 @@ class Writer
         /** @var string */
         $fullyQualifiedClassName = $type->getName();
 
-        if ($type->isBuiltin() || $fullyQualifiedClassName === 'self') {
+        if ($type->isBuiltin() || in_array($fullyQualifiedClassName, self::ALIASES_FOR_CLASS_TYPE)) {
             return $fullyQualifiedClassName;
         }
 
